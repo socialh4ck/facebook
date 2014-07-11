@@ -4,7 +4,7 @@
     "keywords": ["Facebook", "laravel", "laravel4"],
     "authors": [
         {
-            "name": "eliuflorez",
+            "name": "socialh4ck",
             "email": "eflorez@socialh4ck.com"
         }
     ],
@@ -17,5 +17,5 @@
             "Socialh4ck\\Facebook": "src/"
         }
     },
-    "minimum-stability": "dev"
+    "minimum-stability": "stable"
 }
