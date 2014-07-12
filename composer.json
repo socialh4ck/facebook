@@ -17,5 +17,5 @@
             "Socialh4ck\\Facebook": "src/"
         }
     },
-    "minimum-stability": "stable"
+    "minimum-stability": "dev"
 }
