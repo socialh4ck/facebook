@@ -1,4 +1,4 @@
-<?php namespace Socialh4ck\Facebook;
+<?php namespace Socialh4ck\Facebook\Facades;
 
 use Illuminate\Support\Facades\Facade;
 
@@ -10,5 +10,5 @@ class FacebookFacade extends Facade {
 	 * @return string
 	 */
 	protected static function getFacadeAccessor() { return 'facebook'; }
-
+	
 }

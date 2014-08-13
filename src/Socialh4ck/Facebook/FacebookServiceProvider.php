@@ -12,9 +12,9 @@ class FacebookServiceProvider extends ServiceProvider {
 	protected $defer = false;
 
 	/**
-	 * Bootstrap the application events.
-	 *
-	 * @return void
+	 * Boot the package.
+	 * 
+	 * @return void 
 	 */
 	public function boot()
 	{
@@ -28,8 +28,13 @@ class FacebookServiceProvider extends ServiceProvider {
 	 */
 	public function register()
 	{
-		$this->app['facebook'] = $this->app->share(function($app){
-			return new Facebook($app['config']->get('facebook::secret'));
+		$this->app['facebook'] = $this->app->share(function($app)
+		{
+			$appId 		  = $app['config']->get('facebook::app_id');
+			$appSecret 	  = $app['config']->get('facebook::app_secret');
+			$redirect_url = $app['config']->get('facebook::redirect_url');
+
+			return new Facebook($appId, $appSecret, $redirect_url);
 		});
 	}
 

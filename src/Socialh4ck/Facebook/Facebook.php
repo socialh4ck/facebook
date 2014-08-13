@@ -1,240 +1,365 @@
 <?php namespace Socialh4ck\Facebook;
 
-/**
- * Copyright 2011 Facebook, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
- */
+use Facebook\GraphUser;
+use Facebook\FacebookRequest;
+use Facebook\FacebookSession;
+use Facebook\FacebookRedirectLoginHelper;
 
 /**
- * Extends the BaseFacebook class with the intent of using
- * PHP sessions to store user ids and access tokens.
+ * Class Facebook
+ * @package Socialh4ck\Facebook
  */
-class Facebook extends BaseFacebook
-{
-  /**
-   * Cookie prefix
-   */
-  const FBSS_COOKIE_NAME = 'fbss';
-
-  /**
-   * We can set this to a high number because the main session
-   * expiration will trump this.
-   */
-  const FBSS_COOKIE_EXPIRE = 31556926; // 1 year
-
-  /**
-   * Stores the shared session ID if one is set.
-   *
-   * @var string
-   */
-  protected $sharedSessionID;
-
-  /**
-   * Identical to the parent constructor, except that
-   * we start a PHP session to store the user ID and
-   * access token if during the course of execution
-   * we discover them.
-   *
-   * @param array $config the application configuration. Additionally
-   * accepts "sharedSession" as a boolean to turn on a secondary
-   * cookie for environments with a shared session (that is, your app
-   * shares the domain with other apps).
-   *
-   * @see BaseFacebook::__construct
-   */
-  public function __construct($config) {
-    if ((function_exists('session_status') 
-      && session_status() !== PHP_SESSION_ACTIVE) || !session_id()) {
-      session_start();
-    }
-    parent::__construct($config);
-    if (!empty($config['sharedSession'])) {
-      $this->initSharedSession();
-
-      // re-load the persisted state, since parent
-      // attempted to read out of non-shared cookie
-      $state = $this->getPersistentData('state');
-      if (!empty($state)) {
-        $this->state = $state;
-      } else {
-        $this->state = null;
-      }
+class Facebook {
+	
+    /**
+     * @var App Id
+     */
+    protected $appId;
+    
+	/**
+     * @var App Secret
+     */
+    protected $appSecret;
+	
+	/**
+     * @var Redirector
+     */
+    protected $redirect_url;
+	
+    /**
+     * @param Store $session
+     * @param Redirector $redirect
+     * @param Repository $config
+     * @param null $appId
+     * @param null $appSecret
+     */
+    public function __construct($appId = null, $appSecret = null, $redirect_url = null)
+	{
+		session_start();
+		
+		$this->appId        = $appId;
+        $this->appSecret    = $appSecret;
+		$this->redirect_url = $redirect_url;
+		
+        FacebookSession::setDefaultApplication($appId, $appSecret);
 
     }
-  }
 
-  /**
-   * Supported keys for persistent data
-   *
-   * @var array
-   */
-  protected static $kSupportedKeys =
-    array('state', 'code', 'access_token', 'user_id');
-
-  /**
-   * Initiates Shared Session
-   */
-  protected function initSharedSession() {
-    $cookie_name = $this->getSharedSessionCookieName();
-    if (isset($_COOKIE[$cookie_name])) {
-      $data = $this->parseSignedRequest($_COOKIE[$cookie_name]);
-      if ($data && !empty($data['domain']) &&
-          self::isAllowedDomain($this->getHttpHost(), $data['domain'])) {
-        // good case
-        $this->sharedSessionID = $data['id'];
-        return;
-      }
-      // ignoring potentially unreachable data
-    }
-    // evil/corrupt/missing case
-    $base_domain = $this->getBaseDomain();
-    $this->sharedSessionID = md5(uniqid(mt_rand(), true));
-    $cookie_value = $this->makeSignedRequest(
-      array(
-        'domain' => $base_domain,
-        'id' => $this->sharedSessionID,
-      )
-    );
-    $_COOKIE[$cookie_name] = $cookie_value;
-    if (!headers_sent()) {
-      $expire = time() + self::FBSS_COOKIE_EXPIRE;
-      setcookie($cookie_name, $cookie_value, $expire, '/', '.'.$base_domain);
-    } else {
-      // @codeCoverageIgnoreStart
-      self::errorLog(
-        'Shared session ID cookie could not be set! You must ensure you '.
-        'create the Facebook instance before headers have been sent. This '.
-        'will cause authentication issues after the first request.'
-      );
-      // @codeCoverageIgnoreEnd
-    }
-  }
-
-  /**
-   * Provides the implementations of the inherited abstract
-   * methods. The implementation uses PHP sessions to maintain
-   * a store for authorization codes, user ids, CSRF states, and
-   * access tokens.
-   */
-
-  /**
-   * {@inheritdoc}
-   *
-   * @see BaseFacebook::setPersistentData()
-   */
-  protected function setPersistentData($key, $value) {
-    if (!in_array($key, self::$kSupportedKeys)) {
-      self::errorLog('Unsupported key passed to setPersistentData.');
-      return;
+    /**
+     * Get redirect url.
+     *
+     * @return string
+     */
+    public function getRedirectUrl()
+    {
+        return $this->redirect_url ?: \Config::get('facebook::redirect_url', '/');
     }
 
-    $session_var_name = $this->constructSessionVariableName($key);
-    $_SESSION[$session_var_name] = $value;
-  }
+    /**
+     * Set new redirect url.
+     * 
+     * @param $this $url 
+     */
+    public function setRedirectUrl($url)
+    {
+    	$this->redirect_url = $url;
 
-  /**
-   * {@inheritdoc}
-   *
-   * @see BaseFacebook::getPersistentData()
-   */
-  protected function getPersistentData($key, $default = false) {
-    if (!in_array($key, self::$kSupportedKeys)) {
-      self::errorLog('Unsupported key passed to getPersistentData.');
-      return $default;
+    	return $this;
     }
 
-    $session_var_name = $this->constructSessionVariableName($key);
-    return isset($_SESSION[$session_var_name]) ?
-      $_SESSION[$session_var_name] : $default;
-  }
-
-  /**
-   * {@inheritdoc}
-   *
-   * @see BaseFacebook::clearPersistentData()
-   */
-  protected function clearPersistentData($key) {
-    if (!in_array($key, self::$kSupportedKeys)) {
-      self::errorLog('Unsupported key passed to clearPersistentData.');
-      return;
+    /**
+     * Get Facebook Redirect Login Helper.
+     *
+     * @return FacebookRedirectLoginHelper
+     */
+    public function getFacebookHelper()
+    {
+        $appId     = $this->appId     ?: \Config::get('facebook::app_id');
+        $appSecret = $this->appSecret ?: \Config::get('facebook::app_secret');
+		
+        return new FacebookRedirectLoginHelper($this->getRedirectUrl(), $appId, $appSecret);
     }
 
-    $session_var_name = $this->constructSessionVariableName($key);
-    if (isset($_SESSION[$session_var_name])) {
-      unset($_SESSION[$session_var_name]);
-    }
-  }
+	/**
+	 * Get AppId.
+	 * 
+	 * @return string 
+	 */
+	public function getAppId()
+	{
+		return $this->appId;
+	}
 
-  /**
-   * {@inheritdoc}
-   *
-   * @see BaseFacebook::clearAllPersistentData()
-   */
-  protected function clearAllPersistentData() {
-    foreach (self::$kSupportedKeys as $key) {
-      $this->clearPersistentData($key);
-    }
-    if ($this->sharedSessionID) {
-      $this->deleteSharedSessionCookie();
-    }
-  }
+	/**
+	 * Get scope.
+	 * 
+	 * @param  array  $merge 
+	 * @return string|mixed        
+	 */
+	protected function getScope($merge = array())
+	{
+		if(count($merge) > 0) return $merge;
 
-  /**
-   * Deletes Shared session cookie
-   */
-  protected function deleteSharedSessionCookie() {
-    $cookie_name = $this->getSharedSessionCookieName();
-    unset($_COOKIE[$cookie_name]);
-    $base_domain = $this->getBaseDomain();
-    setcookie($cookie_name, '', 1, '/', '.'.$base_domain);
-  }
+		return \Config::get('facebook::scope');
+	}
 
-  /**
-   * Returns the Shared session cookie name
-   *
-   * @return string The Shared session cookie name
-   */
-  protected function getSharedSessionCookieName() {
-    return self::FBSS_COOKIE_NAME . '_' . $this->getAppId();
-  }
+    /**
+     * Get Login Url.
+     *
+     * @param array $scope
+     * @param null $version
+     * @return string
+     */
+	public function getLoginUrl($scope = array(), $version = null)
+	{
+		$scope = $this->getScope($scope);
 
-  /**
-   * Constructs and returns the name of the session key.
-   *
-   * @see setPersistentData()
-   * @param string $key The key for which the session variable name to construct.
-   *
-   * @return string The name of the session key.
-   */
-  protected function constructSessionVariableName($key) {
-    $parts = array('fb', $this->getAppId(), $key);
-    if ($this->sharedSessionID) {
-      array_unshift($parts, $this->sharedSessionID);
-    }
-    return implode('_', $parts);
-  }
-  
-  public function loginUrl(){
-    $params = array(
-      'scope' => \Config::get('facebook::scope'),
-      'redirect_uri' => \Config::get('facebook::redirect'),
-    );
-    return $this->getLoginUrl($params);
-  }
+		return $this->getFacebookHelper()->getLoginUrl($scope, $version);
+	}
 
-  public function logoutUrl(){
-    $params = array( 'next' => \Config::get('facebook::logout'));
-    return $this->getLogoutUrl($params);
-  }
+    /**
+     * Redirect to the facebook login url.
+     *
+     * @param array $scope
+     * @param null $version
+     * @return Response
+     */
+	public function authenticate($scope = array(), $version = null)
+	{
+		return \Redirect::to($this->getLoginUrl($scope, $version));
+	}
+
+	/**
+	 * Get the facebook session (access token) when redirected back.
+	 * 
+	 * @return mixed 
+	 */
+	public function getSessionFromRedirect()
+	{
+		$session = $this->getFacebookHelper()->getSessionFromRedirect();
+	  	
+	  	\Session::put('facebook.session', $session);
+	  	
+	  	return $session;
+	}
+
+	/**
+	 * Get token when redirected back from facebook.
+	 * 
+	 * @return string 
+	 */
+	public function getTokenFromRedirect()
+	{
+		$session = $this->getSessionFromRedirect();
+
+		return $session ? $session->getToken() : null;
+	}
+
+	/**
+	 * Determine whether the "facebook.access_token".
+	 * 
+	 * @return boolean
+	 */
+	public function hasSessionToken()
+	{
+		return \Session::has('facebook.access_token');
+	}
+
+	/**
+	 * Get the facebook access token via Session laravel.
+	 * 
+	 * @return string 
+	 */
+	public function getSessionToken()
+	{
+		return \Session::get('facebook.access_token');
+	}
+
+	/**
+	 * Put the access token to the laravel session manager.
+	 * 
+	 * @param  string $token 
+	 * @return void        
+	 */
+	public function putSessionToken($token)
+	{
+		\Session::put('facebook.access_token', $token);
+	}
+
+	/**
+	 * Get the access token. If the current access token from session manager exists,
+	 * then we will use them, otherwise we get from redirected facebook login.
+	 * 
+	 * @return mixed 
+	 */
+	public function getAccessToken()
+	{
+		if($this->hasSessionToken()) return $this->getSessionToken();
+
+		return $this->getTokenFromRedirect();
+	}
+
+	/**
+	 * Get callback from facebook.
+	 * 
+	 * @return boolean 
+	 */
+	public function getCallback()
+	{
+		$token = $this->getAccessToken();
+		if( ! empty($token) )
+		{
+			$this->putSessionToken($token);
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Get facebook session from laravel session manager.
+	 * 
+	 * @return string|mixed 
+	 */
+	public function getFacebookSession()
+	{
+		return \Session::get('facebook.session');
+	}
+
+	/**
+	 * Destroy all facebook session.
+	 * 
+	 * @return void 
+	 */
+	public function destroy()
+	{
+		\Session::forget('facebook.session');
+		\Session::forget('facebook.access_token');
+	}
+
+	/**
+	 * Logout the current user.
+	 * 
+	 * @return void
+	 */
+	public function logout()
+	{
+	 	$this->destroy();
+	}
+
+	/**
+	 * Facebook API Call.
+	 * 
+	 * @param  string $method     The request method.
+	 * @param  string $path       The end points path.
+	 * @param  mixed  $parameters Parameters.
+	 * @param  string $version    The specified version of Api.
+	 * @param  mixed  $etag
+	 * @return mixed
+	 */
+	public function api($method, $path, $parameters = null, $version = null, $etag = null)
+	{
+		$session = $this->getFacebookSession();	
+		
+		if(empty($session) && !empty($parameters))
+		{
+			$session = new FacebookSession( $parameters['access_token'] );
+		}
+		
+		$request = with(new FacebookRequest($session, $method, $path, $parameters, $version, $etag))
+			->execute()
+			->getGraphObject()->asArray();
+		
+		return $request;
+	}
+
+	/**
+	 * Facebook API Request with "GET" method.
+	 * 
+	 * @param  string $path       
+	 * @param  string|null|mixed $parameters 
+	 * @param  string|null|mixed $version    
+	 * @param  string|null|mixed $etag       
+	 * @return mixed             
+	 */
+	public function get($path, $parameters = null, $version = null, $etag = null)
+	{
+		return $this->api('GET', $path, $parameters, $version, $etag);
+	}
+
+	/**
+	 * Facebook API Request with "POST" method.
+	 * 
+	 * @param  string $path       
+	 * @param  string|null|mixed $parameters 
+	 * @param  string|null|mixed $version    
+	 * @param  string|null|mixed $etag       
+	 * @return mixed             
+	 */
+	public function post($path, $parameters = null, $version = null, $etag = null)
+	{
+		return $this->api('POST', $path, $parameters, $version, $etag);
+	}
+
+	/**
+	 * Facebook API Request with "DELETE" method.
+	 * 
+	 * @param  string $path       
+	 * @param  string|null|mixed $parameters 
+	 * @param  string|null|mixed $version    
+	 * @param  string|null|mixed $etag       
+	 * @return mixed             
+	 */
+	public function delete($path, $parameters = null, $version = null, $etag = null)
+	{
+		return $this->api('DELETE', $path, $parameters, $version, $etag);
+	}
+
+	/**
+	 * Facebook API Request with "PUT" method.
+	 * 
+	 * @param  string $path       
+	 * @param  string|null|mixed $parameters 
+	 * @param  string|null|mixed $version    
+	 * @param  string|null|mixed $etag       
+	 * @return mixed             
+	 */
+	public function put($path, $parameters = null, $version = null, $etag = null)
+	{
+		return $this->api('PUT', $path, $parameters, $version, $etag);
+	}
+
+	/**
+	 * Facebook API Request with "PATCH" method.
+	 * 
+	 * @param  string $path       
+	 * @param  string|null|mixed $parameters 
+	 * @param  string|null|mixed $version    
+	 * @param  string|null|mixed $etag       
+	 * @return mixed             
+	 */
+	public function patch($path, $parameters = null, $version = null, $etag = null)
+	{
+		return $this->api('PATCH', $path, $parameters, $version, $etag);
+	}
+
+	/**
+	 * Get user profile.
+	 * 
+	 * @return mixed 
+	 */
+	public function getProfile()
+	{
+		return $this->get('/me');
+	}
+	
+	public function storeState($state)
+	{
+		\Session::put('state', $state);
+	}
+
+	public function loadState()
+	{
+		return $this->state = \Session::get('state');
+	}
+	
 }
