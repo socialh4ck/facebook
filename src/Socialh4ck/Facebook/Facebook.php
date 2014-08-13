@@ -262,7 +262,15 @@ class Facebook {
 		
 		if(empty($session) && !empty($parameters))
 		{
-			$session = new FacebookSession( $parameters['access_token'] );
+			// AccessToken
+			$token = $parameters['access_token'];
+			
+			// Session Facebook
+			$session = new FacebookSession( $token );
+			
+			// Session PUT
+			\Session::put('facebook.session', $session);
+			\Session::put('facebook.access_token', $token);
 		}
 		
 		$request = with(new FacebookRequest($session, $method, $path, $parameters, $version, $etag))
