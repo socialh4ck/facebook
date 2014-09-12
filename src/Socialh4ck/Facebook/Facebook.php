@@ -35,6 +35,7 @@ class Facebook {
      */
     public function __construct($appId = null, $appSecret = null, $redirect_url = null)
 	{
+		// Start the native php session. Require by facebook.
 		session_start();
 		
 		$this->appId        = $appId;
@@ -96,7 +97,7 @@ class Facebook {
 	 * @param  array  $merge 
 	 * @return string|mixed        
 	 */
-	protected function getScope($merge = array())
+	public function getScope($merge = array())
 	{
 		if(count($merge) > 0) return $merge;
 
@@ -258,9 +259,8 @@ class Facebook {
 	 */
 	public function api($method, $path, $parameters = null, $version = null, $etag = null)
 	{
-		$session = $this->getFacebookSession();	
-		
-		if(empty($session) && !empty($parameters))
+		// Parameters - Token
+		if(!empty($parameters))
 		{
 			// AccessToken
 			$token = $parameters['access_token'];
@@ -271,13 +271,25 @@ class Facebook {
 			// Session PUT
 			\Session::put('facebook.session', $session);
 			\Session::put('facebook.access_token', $token);
+		} 
+		else 
+		{
+			// Access Token
+			$accessToken = $this->getAccessToken();
+			
+			// Facebook Session
+			$session = new FacebookSession($accessToken);
 		}
 		
-		$request = with(new FacebookRequest($session, $method, $path, $parameters, $version, $etag))
-			->execute()
-			->getGraphObject()->asArray();
+		// Facebook Request
+		$request = new FacebookRequest($session, $method, $path, $parameters, $version, $etag);
+		$response = $request->execute();
+
+		// Facebook Response
+		$graphObject = $response->getGraphObject()->asArray();
 		
-		return $request;
+		// Return GraphObject
+		return $graphObject;
 	}
 
 	/**
@@ -358,16 +370,6 @@ class Facebook {
 	public function getProfile()
 	{
 		return $this->get('/me');
-	}
-	
-	public function storeState($state)
-	{
-		\Session::put('state', $state);
-	}
-
-	public function loadState()
-	{
-		return $this->state = \Session::get('state');
 	}
 	
 }
