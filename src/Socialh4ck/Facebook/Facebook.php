@@ -92,6 +92,16 @@ class Facebook {
 	}
 
 	/**
+	 * Get AppSecret.
+	 * 
+	 * @return string 
+	 */
+	public function getAppSecret()
+	{
+		return $this->appSecret;
+	}
+	
+	/**
 	 * Get scope.
 	 * 
 	 * @param  array  $merge 
@@ -263,22 +273,25 @@ class Facebook {
 		if(!empty($parameters))
 		{
 			// AccessToken
-			$token = $parameters['access_token'];
+			$access_token = $parameters['access_token'];
+			
+			// Securing Graph API Requests
+			$app_secret = $this->getAppSecret();
+			$parameters['appsecret_proof'] = hash_hmac('sha256', $access_token, $app_secret);
 			
 			// Session Facebook
-			$session = new FacebookSession( $token );
+			$session = new FacebookSession( $access_token );
 			
 			// Session PUT
 			\Session::put('facebook.session', $session);
-			\Session::put('facebook.access_token', $token);
+			\Session::put('facebook.access_token', $access_token);
 		} 
-		else 
-		{
+		else {
 			// Access Token
-			$accessToken = $this->getAccessToken();
+			$access_token = $this->getAccessToken();
 			
 			// Facebook Session
-			$session = new FacebookSession($accessToken);
+			$session = new FacebookSession($access_token);
 		}
 		
 		// Facebook Request
